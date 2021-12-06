@@ -15,6 +15,7 @@ import (
 	"html/template"
 	"io/ioutil"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -1000,6 +1001,21 @@ func IndexHandler(res http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// restrictToIPMiddleware returns 401 when the IP isn't 127.0.0.1
+func restrictToIPMiddleware(f func(http.ResponseWriter, *http.Request), allowIp string) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+
+		clientIp, _, _ := net.SplitHostPort(r.RemoteAddr)
+
+		if (allowIp != "") && (clientIp != allowIp) {
+			w.WriteHeader(401)
+			return
+		}
+
+		f(w, r) // original function call
+	}
+}
+
 //
 //  Entry-point.
 //
@@ -1037,8 +1053,8 @@ func serve(settings serveCmd) {
 	//
 	// Upload a new report.
 	//
-	router.HandleFunc("/upload/", ReportSubmissionHandler).Methods("POST")
-	router.HandleFunc("/upload", ReportSubmissionHandler).Methods("POST")
+	router.HandleFunc("/upload/", restrictToIPMiddleware(ReportSubmissionHandler, settings.uploadIpFilter)).Methods("POST")
+	router.HandleFunc("/upload", restrictToIPMiddleware(ReportSubmissionHandler, settings.uploadIpFilter)).Methods("POST")
 
 	//
 	// Search nodes.
@@ -1106,12 +1122,13 @@ func serve(settings serveCmd) {
 // The options set by our command-line flags.
 //
 type serveCmd struct {
-	autoPrune bool
-	bindHost  string
-	bindPort  int
-	dbFile    string
-	prefix    string
-	urlprefix string
+	autoPrune      bool
+	bindHost       string
+	bindPort       int
+	dbFile         string
+	prefix         string
+	urlprefix      string
+	uploadIpFilter string
 }
 
 type templateOptions struct {
@@ -1141,6 +1158,7 @@ func (p *serveCmd) SetFlags(f *flag.FlagSet) {
 	f.StringVar(&p.dbFile, "db-file", "ps.db", "The SQLite database to use.")
 	f.StringVar(&p.prefix, "prefix", "./reports/", "The prefix to the local YAML hierarchy.")
 	f.StringVar(&p.urlprefix, "urlprefix", "", "The URL prefix for serving behind a proxy.")
+	f.StringVar(&p.uploadIpFilter, "uploadipfilter", "", "IP Address to restrict upload endpoint to")
 }
 
 //
